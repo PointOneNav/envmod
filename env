@@ -207,6 +207,10 @@ function to_app_path() {
 }
 
 # Load an individual config file.
+#
+# Syntax:
+#   app=alt       <-- python3=venv/bin/python3
+#   app:dir=alt  <-- python3:child/path=venv/bin/python3
 function load_file() {
     local env_file="$1"
     if [[ ! -f "${env_file}" ]]; then
@@ -220,14 +224,21 @@ function load_file() {
 
     readarray -t lines < "${env_file}"
     for line in "${lines[@]}"; do
-        local key=${line%%=*}
-        local value=${line#*=}
+        local spec=$(echo "${line%%=*}" | xargs)
+        local value=$(echo "${line#*=}" | xargs)
 
-        key=$(to_dir_path "${key}" "${parent_dir}")
+        spec=(${spec//:/ })
+        local app=${spec[0]}
+        local dir=${spec[1]}
+        if [[ -z "${dir}" ]]; then
+            dir="${parent_dir}"
+        fi
+
+        dir=$(to_dir_path "${dir}" "${parent_dir}")
         value=$(to_app_path "${value}" "${parent_dir}")
 
-        print 2 "  Mapping ${key}/ --> ${value}"
-        MATCHES[$key]=$value
+        print 2 "  Mapping ${app} @ ${dir}/* --> ${value}"
+        MATCHES["${app}:${dir}"]="${value}"
     done
 }
 
@@ -246,27 +257,31 @@ function load_recursive() {
     load_file "${env_file}"
 }
 
-# Load the list of recognized matches.
-declare -A MATCHES
-
-load_file "/etc/env_paths"
-load_file "${HOME}/.env_paths"
-load_recursive ".env_paths" "${CURRENT_DIR}"
-
 # Search for a recognized parent path.
 function find_override() {
-    local parent_dir="$1"
+    local app="$1"
+    local parent_dir="$2"
     local result=""
+    print 1 "Searching for override for ${app} @ ${parent_dir}..."
     while [[ "${parent_dir}" != "/" ]]; do
-        result="${MATCHES[${parent_dir}]}"
+        result="${MATCHES[${app}:${parent_dir}]}"
+        print 2 "  Testing @ ${parent_dir}"
         if [[ -n "${result}" ]]; then
+            print 1 "Found ${result} (parent dir: ${parent_dir})"
             break
         fi
 
         parent_dir=$(dirname "${parent_dir}")
     done
+
+    if [[ -z "${result}" ]]; then
+        print 1 "No override found."
+    fi
+
     echo "${result}"
 }
+
+APPLICATION="$1"
 
 # If there is a script specified as a second argument, see if it is located
 # within a recognized parent directory. If so, run it with a custom application
@@ -295,13 +310,13 @@ if [[ -n "$2" ]]; then
     # Check if there is a custom application specified for this script's parent
     # directory.
     #   python3 --> path/to/custom/python3
-    TARGET_PATH=$(find_override "${SCRIPT_DIR}")
+    TARGET_PATH=$(find_override "${APPLICATION}" "${SCRIPT_DIR}")
 fi
 
 # No custom target specified. Query the real path to the target application
 # using env.
 if [[ -z "${TARGET_PATH}" ]]; then
-    TARGET_PATH=$(${ENV_REAL} which "$1")
+    TARGET_PATH=$(${ENV_REAL} which "${APPLICATION}")
 fi
 
 set -- "${TARGET_PATH}" "${@:2}"
