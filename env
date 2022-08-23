@@ -99,36 +99,41 @@ function uninstall() {
     exit 0
 }
 
-options=$(getopt -o hiuv -l help,install,uninstall,verbose -- "$@")
-eval set -- "$options"
-
-while true ; do
+options=()
+while [[ $# -gt 0 ]]; do
     case "$1" in
-    -i|--install)
-        install
-        exit 0
-        ;;
-    -h|--help)
-        usage
-        exit 0
-        ;;
-    -u|--uninstall)
-        uninstall
-        exit 0
-        ;;
-    -v|--verbose)
-        let "VERBOSE += 1"
-        ;;
-    --)
-        shift
-        break
-        ;;
-    *)
-        break
-        ;;
+        -i|--install)
+            install
+            exit 0
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -u|--uninstall)
+            uninstall
+            exit 0
+            ;;
+        -v*)
+            if [[ "$1" =~ ^-v+$ ]]; then
+                let "VERBOSE += ${#1} - 1"
+            fi
+            ;;
+        --verbose)
+            let "VERBOSE += 1"
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            options+=("$1")
+            ;;
     esac
     shift
 done
+
+eval set -- "${options[@]}" "$@"
 
 ################################################################################
 # Helper Functions
