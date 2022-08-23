@@ -1,0 +1,251 @@
+#!/bin/bash
+
+# Find the directory of this file, following symlinks.
+#
+# Reference:
+# - https://stackoverflow.com/questions/59895/how-to-get-the-source-directory-of-a-bash-script-from-within-the-script-itself
+get_parent_dir() {
+    local SOURCE="${BASH_SOURCE[0]}"
+    while [ -h "$SOURCE" ]; do
+        local DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
+        SOURCE="$(readlink "$SOURCE")"
+        [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+    done
+
+    local PARENT_DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
+    echo "${PARENT_DIR}"
+}
+
+# Locate the real copy of coreutils env.
+SCRIPT_DIR=$(get_parent_dir)
+CURRENT_DIR=$(pwd)
+ENV_REAL="${SCRIPT_DIR}/env.real"
+
+################################################################################
+# Parse Arguments
+################################################################################
+
+VERBOSE=0
+
+function usage() {
+    cat <<EOF
+Usage: $0 [OPTION]...
+
+Compile this project.
+
+OPTIONS
+   -h, --help
+       Display this usage information.
+   -t, --target NAME
+       Compile the specified target name. May be specified multiple times. By
+       default, all available targets will be built.
+
+Any command-line arguments beginning with -D will be passed to cmake:
+  > $0 -DCMAKE_BUILD_TOOLCHAIN=/path/to/file
+  Becomes:
+  > cmake -DCMAKE_BUILD_TOOLCHAIN=/path/to/file
+
+All other arguments will be passed to make:
+  > $0 -j4
+  Becomes:
+  > make -j4
+EOF
+}
+
+options=$(getopt -o hv -l help,verbose -- "$@")
+eval set -- "$options"
+
+while true ; do
+    case "$1" in
+    -h|--help)
+        usage
+        exit 0
+        ;;
+    -v|--verbose)
+        let "VERBOSE += 1"
+        ;;
+    --)
+        shift
+        break
+        ;;
+    *)
+        break
+        ;;
+    esac
+    shift
+done
+
+################################################################################
+# Run
+################################################################################
+
+function print() {
+    local level=$1
+    local string=$2
+    if [ ${VERBOSE} -ge ${level} ]; then
+        echo "${string}" 1>&2
+    fi
+}
+
+# Convert a directory path to absolute:
+#   /path/to/dir     <-- unchanged
+#   my/dir           <-- Exists in config file parent dir: /parent/dir/my/dir
+#   my/bar           <-- Not in parent dir, use as is: my/bar
+function to_dir_path() {
+    local path="$1"
+    local parent_dir="$2"
+
+    # If this is an absolute path, return it as is.
+    if [[ "${path}" = /* ]]; then
+        print 3 "  Directory '${path}' is absolute path."
+        echo "${path}"
+    else
+        # See if the path exists within the parent directory. If so, use that.
+        local candidate=$(realpath -s -q "${parent_dir}/${path}")
+        if [[ -d "${candidate}" ]]; then
+            print 3 "  Found directory '${path}' in parent directory."
+            echo "${candidate}"
+        # If not, return it as is.
+        else
+            print 3 "  Directory '${path}' not found. Returning as is."
+            echo "${path}"
+        fi
+    fi
+}
+
+# Convert a target application path to absolute:
+#   /path/to/app     <-- unchanged
+#   my_app           <-- Exists in config file parent dir: /parent/dir/my_app
+#   my_foo           <-- Not in config dir (use which): /usr/bin/my_foo
+#   my_bar           <-- Not found by which: my_bar
+function to_app_path() {
+    local path="$1"
+    local parent_dir="$2"
+
+    # If this is an absolute path, return it as is.
+    if [[ "${path}" = /* ]]; then
+        print 3 "  Target '${path}' is absolute path."
+        echo "${path}"
+    else
+        # See if the path exists within the parent directory. If so, use that.
+        local candidate=$(realpath -s -q "${parent_dir}/${path}")
+        if [[ -f "${candidate}" ]]; then
+            print 3 "  Found target '${path}' in parent directory."
+            echo "${candidate}"
+        # If not, assume it's an application on the PATH and find it with which.
+        # Worst case, if which can't find it, just return it as is.
+        else
+            candidate=$(${ENV_REAL} which "${path}")
+            if [[ -n "${candidate}" ]]; then
+                print 3 "  Located target '${path}' on PATH."
+            else
+                print 3 "  Target '${path}' not found. Returning as is."
+                candidate="${path}"
+            fi
+            echo "${candidate}"
+        fi
+    fi
+}
+
+# Load an individual config file.
+function load_file() {
+    local env_file="$1"
+    if [[ ! -f "${env_file}" ]]; then
+        print 1 "Loading ${env_file}... not found"
+        return
+    fi
+
+    print 1 "Loading ${env_file}..."
+
+    local parent_dir=$(realpath -s $(dirname "${env_file}"))
+
+    readarray -t lines < "${env_file}"
+    for line in "${lines[@]}"; do
+        local key=${line%%=*}
+        local value=${line#*=}
+
+        key=$(to_dir_path "${key}" "${parent_dir}")
+        value=$(to_app_path "${value}" "${parent_dir}")
+
+        print 2 "  Mapping ${key}/ --> ${value}"
+        MATCHES[$key]=$value
+    done
+}
+
+# Recursively load config files found in parent directories.
+function load_recursive() {
+    local env_filename="$1"
+    local parent_dir="$2"
+
+    # Load parent files recursively _before_ loading this one. Nested files take
+    # precedence over parent directories.
+    if [[ "${parent_dir}" != "/" ]]; then
+        load_recursive "${env_filename}" $(dirname "${parent_dir}")
+    fi
+
+    local env_file="${parent_dir}/${env_filename}"
+    load_file "${env_file}"
+}
+
+# Load the list of recognized matches.
+declare -A MATCHES
+
+load_file "/etc/env_paths"
+load_file "${HOME}/.env_paths"
+load_recursive ".env_paths" "${CURRENT_DIR}"
+
+# Search for a recognized parent path.
+function find_override() {
+    local parent_dir="$1"
+    local result=""
+    while [[ "${parent_dir}" != "/" ]]; do
+        result="${MATCHES[${parent_dir}]}"
+        if [[ -n "${result}" ]]; then
+            break
+        fi
+
+        parent_dir=$(dirname "${parent_dir}")
+    done
+    echo "${result}"
+}
+
+# If there is a script specified as a second argument, see if it is located
+# within a recognized parent directory. If so, run it with a custom application
+# instead of the default one:
+#     /usr/bin/env python3 path/to/my_script.py [args...]
+#   -->
+#     path/to/custom/python3 path/to/my_script.py [args...]
+#
+# If the path does not have a custom application specified, we'll run it
+# normally using the real env:
+#     /usr/bin/env python3 other/path/some_script.py [args...]
+#   -->
+#     /usr/bin/python3 other/path/some_script.py [args...]
+#
+# Lastly, if there is no script present (user called env directly, not as a
+# shebang in a script), run normally:
+#     /usr/bin/env my_app
+#   -->
+#     /path/to/my_app
+if [[ -n "$2" ]]; then
+    # Find the parent directory of the script being run.
+    SCRIPT_PATH="$2"
+    SCRIPT_ABS_PATH=$(realpath -s "${SCRIPT_PATH}")
+    SCRIPT_DIR=$(dirname "${SCRIPT_ABS_PATH}")
+
+    # Check if there is a custom application specified for this script's parent
+    # directory.
+    #   python3 --> path/to/custom/python3
+    TARGET_PATH=$(find_override "${SCRIPT_DIR}")
+fi
+
+# No custom target specified. Query the real path to the target application
+# using env.
+if [[ -z "${TARGET_PATH}" ]]; then
+    TARGET_PATH=$(${ENV_REAL} which "$1")
+fi
+
+set -- "${TARGET_PATH}" "${@:2}"
+
+# Now run the application.
+exec "$@"
