@@ -55,9 +55,9 @@ Now, when we run script.py, it will use the virtual environment instead.
 OPTIONS
    -h, --help
        Display this usage information.
-   -i, --install
+   --install
        Install this script in place of /usr/bin/env (requires sudo).
-   -u, --uninstall
+   --uninstall
        Uninstall this script and restore the original /usr/bin/env application.
    -v, --verbose
        Output verbose information to stderr.
@@ -102,7 +102,7 @@ function uninstall() {
 options=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -i|--install)
+        --install)
             install
             exit 0
             ;;
@@ -110,7 +110,7 @@ while [[ $# -gt 0 ]]; do
             usage
             exit 0
             ;;
-        -u|--uninstall)
+        --uninstall)
             uninstall
             exit 0
             ;;
