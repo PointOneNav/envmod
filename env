@@ -21,11 +21,7 @@ CURRENT_DIR=$(pwd)
 
 # Locate the real copy of coreutils env.
 ENV_PATH=/usr/bin/env
-
 ENV_REAL="${ENV_PATH}.real"
-if [[ ! -f "${ENV_REAL}" ]]; then
-    ENV_REAL="${ENV_PATH}"
-fi
 
 ################################################################################
 # Parse Arguments
@@ -284,6 +280,11 @@ function find_override() {
 ################################################################################
 # Run Script
 ################################################################################
+
+# If not installed, use /usr/bin/env as the "real" env.
+if [[ ! -f "${ENV_REAL}" ]]; then
+    ENV_REAL="${ENV_PATH}"
+fi
 
 # Before starting, if the user just ran env with no arguments, run that now and
 # exit.
