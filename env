@@ -16,10 +16,16 @@ get_parent_dir() {
     echo "${PARENT_DIR}"
 }
 
-# Locate the real copy of coreutils env.
 SCRIPT_DIR=$(get_parent_dir)
 CURRENT_DIR=$(pwd)
-ENV_REAL="${SCRIPT_DIR}/env.real"
+
+# Locate the real copy of coreutils env.
+ENV_PATH=/usr/bin/env
+
+ENV_REAL="${ENV_PATH}.real"
+if [[ ! -f "${ENV_REAL}" ]]; then
+    ENV_REAL="${ENV_PATH}"
+fi
 
 ################################################################################
 # Parse Arguments
@@ -29,36 +35,89 @@ VERBOSE=0
 
 function usage() {
     cat <<EOF
-Usage: $0 [OPTION]...
+Usage: $0 [OPTION]... [--] [COMMAND [ARG]...]
 
-Compile this project.
+Run a program in a modified environment.
+
+This utility acts similar to the coreutils env application (/usr/bin/env), but
+with one added feature: when running an application or script that resides in a
+known directory, it will replace the application with a known alternative.
+
+For example, say you have the following directory structure:
+  my/
+    code/
+      script.py  <-- Python script starting with: #!/usr/bin/env python3
+    venv/        <-- Python virtual environment
+
+By default, if you run my/code/script.py, it will execute with the system Python
+installation as located by /usr/bin/env (typically /usr/bin/python3). Instead,
+we can define a file my/.env_paths as follows:
+  python3=venv/bin/python3
+
+Now, when we run script.py, it will use the virtual environment instead.
 
 OPTIONS
    -h, --help
        Display this usage information.
-   -t, --target NAME
-       Compile the specified target name. May be specified multiple times. By
-       default, all available targets will be built.
+   -i, --install
+       Install this script in place of /usr/bin/env (requires sudo).
+   -u, --uninstall
+       Uninstall this script and restore the original /usr/bin/env application.
+   -v, --verbose
+       Output verbose information to stderr.
 
-Any command-line arguments beginning with -D will be passed to cmake:
-  > $0 -DCMAKE_BUILD_TOOLCHAIN=/path/to/file
-  Becomes:
-  > cmake -DCMAKE_BUILD_TOOLCHAIN=/path/to/file
-
-All other arguments will be passed to make:
-  > $0 -j4
-  Becomes:
-  > make -j4
+Any options specified after -- will be passed directly to the application.
 EOF
 }
 
-options=$(getopt -o hv -l help,verbose -- "$@")
+function install() {
+    if [ "$EUID" -ne 0 ]; then
+        echo "Must be run as root."
+        exit 1
+    fi
+
+    local env_path=$(realpath ${ENV_PATH})
+    if [[ "${env_path}" != "${SCRIPT_DIR}/env" ]]; then
+        echo "Renaming ${ENV_PATH} --> ${ENV_REAL}"
+        mv ${ENV_PATH} ${ENV_REAL}
+
+        echo "Installing ${SCRIPT_DIR}/env --> ${ENV_PATH}"
+        ln -s "${SCRIPT_DIR}/env" ${ENV_PATH}
+    fi
+
+    exit 0
+}
+
+function uninstall() {
+    if [ "$EUID" -ne 0 ]; then
+        echo "Must be run as root."
+        exit 1
+    fi
+
+    local env_path=$(realpath ${ENV_PATH})
+    if [[ "${env_path}" == "${SCRIPT_DIR}/env" ]]; then
+        echo "Restoring ${ENV_REAL} --> ${ENV_PATH}"
+        mv ${ENV_REAL} ${ENV_PATH}
+    fi
+
+    exit 0
+}
+
+options=$(getopt -o hiuv -l help,install,uninstall,verbose -- "$@")
 eval set -- "$options"
 
 while true ; do
     case "$1" in
+    -i|--install)
+        install
+        exit 0
+        ;;
     -h|--help)
         usage
+        exit 0
+        ;;
+    -u|--uninstall)
+        uninstall
         exit 0
         ;;
     -v|--verbose)
