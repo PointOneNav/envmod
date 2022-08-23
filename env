@@ -135,7 +135,7 @@ while true ; do
 done
 
 ################################################################################
-# Run
+# Helper Functions
 ################################################################################
 
 function print() {
@@ -281,7 +281,34 @@ function find_override() {
     echo "${result}"
 }
 
+################################################################################
+# Run Script
+################################################################################
+
+# Before starting, if the user just ran env with no arguments, run that now and
+# exit.
+if [[ -z "$1" ]]; then
+    exec ${ENV_REAL}
+    exit $?
+fi
+
+# Find the parent directory of the script being run.
 APPLICATION="$1"
+
+if [[ -n "$2" ]]; then
+    SCRIPT_PATH="$2"
+    SCRIPT_ABS_PATH=$(realpath -s "${SCRIPT_PATH}")
+    SCRIPT_DIR=$(dirname "${SCRIPT_ABS_PATH}")
+fi
+
+# Load the list of recognized matches.
+declare -A MATCHES
+
+load_file "/etc/env_paths"
+load_file "${HOME}/.env_paths"
+if [[ -n "${SCRIPT_DIR}" ]]; then
+    load_recursive ".env_paths" "${SCRIPT_DIR}"
+fi
 
 # If there is a script specified as a second argument, see if it is located
 # within a recognized parent directory. If so, run it with a custom application
@@ -301,12 +328,7 @@ APPLICATION="$1"
 #     /usr/bin/env my_app
 #   -->
 #     /path/to/my_app
-if [[ -n "$2" ]]; then
-    # Find the parent directory of the script being run.
-    SCRIPT_PATH="$2"
-    SCRIPT_ABS_PATH=$(realpath -s "${SCRIPT_PATH}")
-    SCRIPT_DIR=$(dirname "${SCRIPT_ABS_PATH}")
-
+if [[ -n "${SCRIPT_DIR}" ]]; then
     # Check if there is a custom application specified for this script's parent
     # directory.
     #   python3 --> path/to/custom/python3
