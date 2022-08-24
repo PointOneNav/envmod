@@ -22,6 +22,7 @@ CURRENT_DIR=$(pwd)
 # Locate the real copy of coreutils env.
 ENV_PATH=/usr/bin/env
 ENV_REAL="${ENV_PATH}.real"
+ENV_MOD_PATH="${SCRIPT_DIR}/envmod"
 
 ################################################################################
 # Parse Arguments
@@ -72,13 +73,13 @@ function install() {
         exit 1
     fi
 
-    local env_path=$(realpath ${ENV_PATH})
-    if [[ "${env_path}" != "${SCRIPT_DIR}/env" ]]; then
+    local env_path=$(realpath "${ENV_PATH}")
+    if [[ "${env_path}" != "${ENV_MOD_PATH}" ]]; then
         echo "Renaming ${ENV_PATH} --> ${ENV_REAL}"
-        mv ${ENV_PATH} ${ENV_REAL}
+        mv "${ENV_PATH}" "${ENV_REAL}"
 
-        echo "Installing ${SCRIPT_DIR}/env --> ${ENV_PATH}"
-        ln -s "${SCRIPT_DIR}/env" ${ENV_PATH}
+        echo "Installing ${ENV_MOD_PATH} --> ${ENV_PATH}"
+        ln -s "${ENV_MOD_PATH}" "${ENV_PATH}"
     fi
 
     exit 0
@@ -90,10 +91,10 @@ function uninstall() {
         exit 1
     fi
 
-    local env_path=$(realpath ${ENV_PATH})
-    if [[ "${env_path}" == "${SCRIPT_DIR}/env" ]]; then
+    local env_path=$(realpath "${ENV_PATH}")
+    if [[ "${env_path}" == "${ENV_MOD_PATH}" ]]; then
         echo "Restoring ${ENV_REAL} --> ${ENV_PATH}"
-        mv ${ENV_REAL} ${ENV_PATH}
+        mv "${ENV_REAL}" "${ENV_PATH}"
     fi
 
     exit 0
@@ -310,10 +311,10 @@ fi
 # Load the list of recognized matches.
 declare -A MATCHES
 
-load_file "/etc/env_paths"
-load_file "${HOME}/.env_paths"
+load_file "/etc/envmod"
+load_file "${HOME}/.envmod"
 if [[ -n "${SCRIPT_DIR}" ]]; then
-    load_recursive ".env_paths" "${SCRIPT_DIR}"
+    load_recursive ".envmod" "${SCRIPT_DIR}"
 fi
 
 # If there is a script specified as a second argument, see if it is located
