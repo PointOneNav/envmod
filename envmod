@@ -41,14 +41,15 @@ with one added feature: when running an application or script that resides in a
 known directory, it will replace the application with a known alternative.
 
 For example, say you have the following directory structure:
-  my/
+  project/
     code/
       script.py  <-- Python script starting with: #!/usr/bin/env python3
     venv/        <-- Python virtual environment
 
-By default, if you run my/code/script.py, it will execute with the system Python
-installation as located by /usr/bin/env (typically /usr/bin/python3). Instead,
-we can define a file my/.env_paths as follows:
+By default, if you run project/code/script.py, it will execute with the system
+Python installation as located by /usr/bin/env (typically /usr/bin/python3).
+
+Instead, we can define a file project/.envmod with the following:
   python3=venv/bin/python3
 
 Now, when we run script.py, it will use the virtual environment instead.
