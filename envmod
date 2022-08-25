@@ -30,6 +30,12 @@ ENV_MOD_PATH="${SCRIPT_DIR}/envmod"
 
 VERBOSE=0
 
+if [[ -z "$2" ]]; then
+    ONE_ARG=T
+else
+    ONE_ARG=
+fi
+
 function usage() {
     cat <<EOF
 Usage: $0 [OPTION]... [--] [COMMAND [ARG]...]
@@ -55,14 +61,15 @@ Instead, we can define a file project/.envmod with the following:
 Now, when we run script.py, it will use the virtual environment instead.
 
 OPTIONS
-   -h, --help
+   -h, --help, --env-help
        Display this usage information.
    --install
        Install this script in place of /usr/bin/env (requires sudo).
    --uninstall
        Uninstall this script and restore the original /usr/bin/env application.
-   -v, --verbose
-       Output verbose information to stderr.
+   -env-v*, --env-verbose
+       Output verbose information to stderr. This argument may be specified
+       multiple times to increase verbosity (e.g., $0 -env_vvv).
 
 Any options specified after -- will be passed directly to the application.
 EOF
@@ -81,6 +88,8 @@ function install() {
 
         echo "Installing ${ENV_MOD_PATH} --> ${ENV_PATH}"
         ln -s "${ENV_MOD_PATH}" "${ENV_PATH}"
+    else
+        echo "Already installed."
     fi
 
     exit 0
@@ -96,6 +105,8 @@ function uninstall() {
     if [[ "${env_path}" == "${ENV_MOD_PATH}" ]]; then
         echo "Restoring ${ENV_REAL} --> ${ENV_PATH}"
         mv "${ENV_REAL}" "${ENV_PATH}"
+    else
+        echo "Not currently installed."
     fi
 
     exit 0
@@ -104,24 +115,40 @@ function uninstall() {
 options=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --install)
-            install
-            exit 0
-            ;;
-        -h|--help)
+        --env-help)
             usage
             exit 0
             ;;
-        --uninstall)
-            uninstall
-            exit 0
-            ;;
-        -v*)
-            if [[ "$1" =~ ^-v+$ ]]; then
-                let "VERBOSE += ${#1} - 1"
+        -h|--help)
+            if [[ "${ONE_ARG}" == "T" ]]; then
+                usage
+                exit 0
+            else
+                options+=("$1")
             fi
             ;;
-        --verbose)
+        --install)
+            if [[ "${ONE_ARG}" == "T" ]]; then
+                install
+                exit 0
+            else
+                options+=("$1")
+            fi
+            ;;
+        --uninstall)
+            if [[ "${ONE_ARG}" == "T" ]]; then
+                uninstall
+                exit 0
+            else
+                options+=("$1")
+            fi
+            ;;
+        -env-v*)
+            if [[ "$1" =~ ^-env-v+$ ]]; then
+                let "VERBOSE += ${#1} - 5"
+            fi
+            ;;
+        --env-verbose)
             let "VERBOSE += 1"
             ;;
         --)
